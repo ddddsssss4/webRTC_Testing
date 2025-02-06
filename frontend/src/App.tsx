@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 
 // Connect to the signaling server
-const socket = io("http://localhost:5000");
+const socket = io(process.env.BACKEND_URL);
 
 interface PeerConnections {
   [peerId: string]: RTCPeerConnection;
