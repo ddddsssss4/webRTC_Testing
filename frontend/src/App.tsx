@@ -172,7 +172,7 @@ const App: React.FC = () => {
     // When an answer is received:
     socket.on("answer", async (data: { userId: string; answer: RTCSessionDescriptionInit }) => {
       console.log(`Answer received from ${data.userId}`);
-      const pc = pcsRef.current[data.userId];
+      const pc =  pcsRef.current[data.userId];
       if (!pc) {
         console.error(`PeerConnection not found for ${data.userId}`);
         return;
@@ -276,7 +276,7 @@ const App: React.FC = () => {
       <p>{message}</p>
       <div>
         <h2>Local Video</h2>
-        <video ref={localVideoRef} autoPlay muted style={{ width: "50%", transform: "scaleX(-1)" }} />
+        <video ref={localVideoRef} autoPlay muted style={{ width: "200px", transform: "scaleX(-1)" }} />
       </div>
       <div>
         <h2>Remote Videos</h2>
@@ -289,7 +289,7 @@ const App: React.FC = () => {
               ref={(video) => {
                 if (video) video.srcObject = remote.stream;
               }}
-              style={{ width: "50%" }}
+              style={{ width: "200px" }}
             />
           </div>
         ))}
