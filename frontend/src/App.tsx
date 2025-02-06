@@ -1,8 +1,12 @@
+
 import React, { useEffect, useRef, useState } from "react";
 import io from "socket.io-client";
 
-// Connect to the signaling server
-const socket = io(process.env.BACKEND_URL);
+
+
+
+const socket = io("https://webrtc-1-hc8e.onrender.com");
+
 
 interface PeerConnections {
   [peerId: string]: RTCPeerConnection;
