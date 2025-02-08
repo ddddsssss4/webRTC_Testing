@@ -1,10 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect , useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Mic, MicOff, Video, VideoOff, Phone, Users, MessageSquare, ArrowLeft, Send, X } from 'lucide-react';
-import { useWebRTC } from '../hooks/useWebRTC';
+
 import { VideoPlayer } from './VideoPlayer';
 import { useLocation } from 'react-router-dom';
+import io from "socket.io-client";
+
+const socket = io("https://webrtc-1-hc8e.onrender.com");
+
+interface PeerConnections {
+  [peerId: string]: RTCPeerConnection;
+}
+
+interface RemoteStream {
+  id: string;
+  stream: MediaStream;
+}
+
 
 const VideoRoom = () => {
   const { roomId } = useParams();
@@ -16,19 +29,242 @@ const VideoRoom = () => {
   const location = useLocation();
   const action = location.state?.action; // 'create' or 'join'
   
-  const {
-    localStream,
-    remoteStreams,
-    connectionStatus,
-    error,
-    createRoom,
-    joinRoom,
-  
-    cleanup
-  } = useWebRTC();
+   const localVideoRef = useRef<HTMLVideoElement>(null);
+    const localStreamRef = useRef<MediaStream | null>(null);
 
+   
+    const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
   
-  console.log(error);
+    // Store peer connections keyed by peerId
+    const pcsRef = useRef<PeerConnections>({});
+  
+    // STUN server configuration
+    const rtcConfig = {
+      iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+    };
+  
+    // Create a new RTCPeerConnection for a given peerId
+    const createPeerConnection = (peerId: string): RTCPeerConnection => {
+      const pc = new RTCPeerConnection(rtcConfig);
+  
+      // Handle remote track event
+      pc.ontrack = (event) => {
+        console.log(`Remote track received from ${peerId}`);
+        const remoteStream = event.streams[0] || new MediaStream([event.track]);
+  
+        setRemoteStreams((prevStreams) => {
+          if (prevStreams.find((rs) => rs.id === peerId)) return prevStreams;
+          return [...prevStreams, { id: peerId, stream: remoteStream }];
+        });
+      };
+  
+      // Handle ICE candidates
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log(`Sending ICE candidate for ${peerId}`);
+          socket.emit("ice-candidate", { userId: peerId, candidate: event.candidate });
+        }
+      };
+  
+      // Save this connection for later use
+      pcsRef.current[peerId] = pc;
+  
+      // Add local tracks if available
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach((track) => {
+          pc.addTrack(track, localStreamRef.current!);
+        });
+      }
+  
+      return pc;
+    };
+  
+    // Set up local media (camera and microphone)
+    const setupLocalMedia = async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        localStreamRef.current = stream;
+        if (localVideoRef.current) {
+          localVideoRef.current.srcObject = stream;
+        }
+      } catch (error) {
+        console.error("Error accessing local media:", error);
+      }
+    };
+  
+    // Create a room and join it
+    const createRoom = async () => {
+      if (!roomId) return;
+      socket.emit("create-room", roomId);
+      setMessage(`Creating room: ${roomId}`);
+      await setupLocalMedia();
+      socket.emit("join-room", roomId);
+    };
+  
+    // Join an existing room
+    const joinRoom = async () => {
+      if (!roomId) return;
+      await setupLocalMedia();
+      socket.emit("join-room", roomId);
+    };
+  
+    useEffect(() => {
+      // --- Socket event handlers ---
+  
+      socket.on("room-created", (roomId: string) => {
+        setMessage(`Room created: ${roomId}`);
+      });
+  
+      socket.on("room-exists", () => {
+        setMessage("Room already exists.");
+      });
+  
+      socket.on("room-not-found", () => {
+        setMessage("Room not found.");
+      });
+  
+      // When joining, the server sends a list of users already in the room.
+      socket.on("users-in-room", (users: string[]) => {
+        console.log("Users in room:", users);
+        // New joiner: send an offer to each existing peer.
+        users.forEach((peerId) => {
+          createOffer(peerId);
+        });
+      });
+  
+      // **Remove the "user-connected" event handler to avoid duplicate offers**
+      // socket.on("user-connected", (peerId: string) => {
+      //   console.log(`User connected: ${peerId}`);
+      //   // Do not call createOffer here. Let the new joiner handle offer creation.
+      // });
+  
+      // When an offer is received:
+      socket.on("offer", async (data: { userId: string; offer: RTCSessionDescriptionInit }) => {
+        console.log(`Offer received from ${data.userId}`);
+        
+        // Get (or create) the peer connection for this user.
+        let pc = pcsRef.current[data.userId];
+        if (!pc) {
+          pc = createPeerConnection(data.userId);
+        }
+        
+        // If we've already set a remote description of type "offer",
+        // then this is likely a duplicate offer and we can ignore it.
+        if (pc.remoteDescription && pc.remoteDescription.type === "offer") {
+          console.warn(`PC ${data.userId} already has a remote offer, ignoring duplicate offer.`);
+          return;
+        }
+        
+        console.log(`PC ${data.userId} signaling state before setting remote offer: ${pc.signalingState}`);
+        
+        try {
+          // Set the remote description with the received offer.
+          await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+          console.log(`PC ${data.userId} signaling state after setting remote offer: ${pc.signalingState}`);
+          
+          // Check that we are now in the expected state ("have-remote-offer")
+          if (pc.signalingState !== "have-remote-offer") {
+            console.warn(`PC ${data.userId} is in state "${pc.signalingState}" after setting remote offer. Aborting answer creation.`);
+            return;
+          }
+          
+          // Create an answer and set it as the local description.
+          const answer = await pc.createAnswer();
+          await pc.setLocalDescription(answer);
+          console.log(`Sending answer to ${data.userId}`);
+          socket.emit("answer", { userId: data.userId, answer });
+        } catch (error) {
+          console.error("Error handling offer:", error);
+        }
+      });
+      
+  
+      // When an answer is received:
+      socket.on("answer", async (data: { userId: string; answer: RTCSessionDescriptionInit }) => {
+        console.log(`Answer received from ${data.userId}`);
+        const pc =  pcsRef.current[data.userId];
+        if (!pc) {
+          console.error(`PeerConnection not found for ${data.userId}`);
+          return;
+        }
+        console.log(`PC ${data.userId} signaling state before answer: ${pc.signalingState}`);
+  
+        // Only set the remote description if we are expecting an answer.
+        if (pc.signalingState !== "have-local-offer") {
+          console.warn(
+            `Ignoring answer from ${data.userId} because signaling state is "${pc.signalingState}" (expected "have-local-offer")`
+          );
+          return;
+        }
+  
+        try {
+          await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+          console.log(`PC ${data.userId} signaling state after setting answer: ${pc.signalingState}`);
+        } catch (error) {
+          console.error("Error setting remote description:", error);
+        }
+      });
+  
+      // When ICE candidates are received:
+      socket.on("ice-candidate", async (data: { userId: string; candidate: RTCIceCandidateInit }) => {
+        console.log(`ICE candidate received for ${data.userId}`);
+        const pc = pcsRef.current[data.userId];
+        if (!pc) {
+          console.error(`PeerConnection not found for ${data.userId}`);
+          return;
+        }
+        try {
+          await pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+        } catch (error) {
+          console.error("Error adding ICE candidate:", error);
+        }
+      });
+  
+      // When a user disconnects:
+      socket.on("user-disconnected", (peerId: string) => {
+        console.log(`User disconnected: ${peerId}`);
+        const pc = pcsRef.current[peerId];
+        if (pc) {
+          pc.close();
+          delete pcsRef.current[peerId];
+        }
+        setRemoteStreams((prevStreams) => prevStreams.filter((rs) => rs.id !== peerId));
+      });
+  
+      // Clean up on unmount.
+      return () => {
+        socket.off("room-created");
+        socket.off("room-exists");
+        socket.off("room-not-found");
+        socket.off("users-in-room");
+        // socket.off("user-connected"); // no longer used
+        socket.off("offer");
+        socket.off("answer");
+        socket.off("ice-candidate");
+        socket.off("user-disconnected");
+      };
+    }, []);
+  
+    // When initiating a connection to a remote peer, create an offer.
+    const createOffer = async (peerId: string) => {
+      // Create or retrieve an existing connection for this peer.
+      const pc = pcsRef.current[peerId] || createPeerConnection(peerId);
+  
+      // Check if the connection is in a stable state before creating an offer.
+      if (pc.signalingState !== "stable") {
+        console.warn(`Skipping offer creation for ${peerId} because signaling state is ${pc.signalingState}`);
+        return;
+      }
+  
+      try {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        console.log(`Sending offer to ${peerId}`);
+        socket.emit("offer", { userId: peerId, offer });
+      } catch (error) {
+        console.error("Error creating offer:", error);
+      }
+    };
   // Dummy messages for demonstration
   const [messages] = useState([
     { id: 1, sender: 'John Doe', text: 'Hey everyone! 👋', time: '10:30 AM' },
@@ -47,12 +283,12 @@ const VideoRoom = () => {
   useEffect(() => {
     if (roomId) {
       if (action === 'create') {
-        createRoom(roomId);
+        createRoom();
       } else {
-        joinRoom(roomId);
+        joinRoom();
       }
     }
-    return () => cleanup();
+   
   }, [roomId]);
 
   const handleSendMessage = (e: React.FormEvent) => {
@@ -64,8 +300,8 @@ const VideoRoom = () => {
   };
 
   const toggleMute = () => {
-    if (localStream) {
-      localStream.getAudioTracks().forEach(track => {
+    if (localStreamRef) {
+      localStreamRef.current?.getAudioTracks().forEach((track: { enabled: boolean; }) => {
         track.enabled = !track.enabled;
       });
       setIsMuted(!isMuted);
@@ -73,8 +309,8 @@ const VideoRoom = () => {
   };
 
   const toggleVideo = () => {
-    if (localStream) {
-      localStream.getVideoTracks().forEach(track => {
+    if (localStreamRef) {
+      localStreamRef.current?.getVideoTracks().forEach((track: { enabled: boolean; }) => {
         track.enabled = !track.enabled;
       });
       setIsVideoOff(!isVideoOff);
@@ -106,23 +342,23 @@ const VideoRoom = () => {
             </div>
           </div>
           <div className="flex items-center gap-4">
-            <span className={`flex items-center gap-2 ${
+            {/* <span className={`flex items-center gap-2 ${
               connectionStatus === 'connected' ? 'text-green-400' : 'text-yellow-400'
             }`}>
               <div className={`w-2 h-2 rounded-full ${
                 connectionStatus === 'connected' ? 'bg-green-400' : 'bg-yellow-400'
               }`}></div>
               {connectionStatus === 'connected' ? 'Connected' : 'Connecting...'}
-            </span>
+            </span> */}
           </div>
         </motion.div>
 
         {/* Main Content */}
         <div className="flex-1 p-4 relative">
           <div className="grid grid-cols-2 grid-rows-2 gap-4 h-full">
-            {localStream && (
+            {localStreamRef && (
               <VideoPlayer
-                stream={localStream}
+                stream={localStreamRef.current!}
                 isMirrored={true}
                 label="You"
               />
@@ -222,7 +458,7 @@ const VideoRoom = () => {
           <motion.button
             whileHover={{ scale: 1.1 }}
             whileTap={{ scale: 0.9 }}
-            onClick={toggleMute}
+            onClick={ toggleMute}
             className={`p-4 rounded-full transition-colors border ${
               isMuted
                 ? 'bg-red-600 text-white hover:bg-red-700 border-red-500'
