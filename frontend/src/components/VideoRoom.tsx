@@ -34,7 +34,7 @@ const VideoRoom = () => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
-  
+  console.log(isVisible,name , message);
     // Store peer connections keyed by peerId
     const pcsRef = useRef<PeerConnections>({});
   
