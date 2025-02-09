@@ -25,8 +25,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ stream, isMirrored = f
       <video
         ref={videoRef}
         autoPlay
+       
         playsInline
-        muted={isMirrored}
+        muted={true}
         className={`w-full h-full object-cover rounded-lg ${
           isMirrored ? 'transform scale-x-[-1]' : ''
         }`}

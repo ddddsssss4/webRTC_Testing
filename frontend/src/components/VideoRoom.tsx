@@ -24,16 +24,16 @@ const VideoRoom = () => {
   const navigate = useNavigate();
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [message, setMessage] = useState('');
+  const [chatMessages, setChatMessages] = useState<string>('');
   const [isMuted, setIsMuted] = useState(false);
   const [isVideoOff, setIsVideoOff] = useState(false);
   const location = useLocation();
-  const action = location.state?.action; // 'create' or 'join'
-  
-   const localVideoRef = useRef<HTMLVideoElement>(null);
-    const localStreamRef = useRef<MediaStream | null>(null);
-
-   
-    const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
+  const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected'>('disconnected');
+  const {action , name} = location.state // 'create' or 'join'
+  const [isVisible, setIsVisible] = useState(false);
+  const localVideoRef = useRef<HTMLVideoElement>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
   
     // Store peer connections keyed by peerId
     const pcsRef = useRef<PeerConnections>({});
@@ -42,6 +42,31 @@ const VideoRoom = () => {
     const rtcConfig = {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     };
+
+
+    useEffect(() => {
+      const handleMouseMove = (e: MouseEvent) => {
+        if (window.innerHeight - e.clientY < 100) {
+          setIsVisible(true);
+        } else {
+          setIsVisible(false);
+        }
+      };
+  
+      const handleTouchStart = () => {
+        setIsVisible(true);
+        setTimeout(() => setIsVisible(false), 3000); // Hide after 3s on mobile
+      };
+  
+      window.addEventListener("mousemove", handleMouseMove);
+      window.addEventListener("touchstart", handleTouchStart);
+  
+      return () => {
+        window.removeEventListener("mousemove", handleMouseMove);
+        window.removeEventListener("touchstart", handleTouchStart);
+      };
+    }, []);
+  
   
     // Create a new RTCPeerConnection for a given peerId
     const createPeerConnection = (peerId: string): RTCPeerConnection => {
@@ -94,6 +119,7 @@ const VideoRoom = () => {
   
     // Create a room and join it
     const createRoom = async () => {
+      setConnectionStatus('connecting');
       if (!roomId) return;
       socket.emit("create-room", roomId);
       setMessage(`Creating room: ${roomId}`);
@@ -103,6 +129,7 @@ const VideoRoom = () => {
   
     // Join an existing room
     const joinRoom = async () => {
+      setConnectionStatus('connecting')
       if (!roomId) return;
       await setupLocalMedia();
       socket.emit("join-room", roomId);
@@ -110,8 +137,12 @@ const VideoRoom = () => {
   
     useEffect(() => {
       // --- Socket event handlers ---
-  
+      socket.on("connect", () => {
+        console.log("Connected to signaling server");
+        setConnectionStatus('connected');
+      })
       socket.on("room-created", (roomId: string) => {
+        setConnectionStatus('connected');
         setMessage(`Room created: ${roomId}`);
       });
   
@@ -223,6 +254,7 @@ const VideoRoom = () => {
       // When a user disconnects:
       socket.on("user-disconnected", (peerId: string) => {
         console.log(`User disconnected: ${peerId}`);
+        setConnectionStatus('disconnected');
         const pc = pcsRef.current[peerId];
         if (pc) {
           pc.close();
@@ -293,9 +325,19 @@ const VideoRoom = () => {
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (message.trim()) {
-      // Add message handling logic here
-      setMessage('');
+    if (chatMessages.trim()) {
+    const newMessage = {
+      id: messages.length + 1,
+      sender: 'You',
+      text: chatMessages.trim(),
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+    };
+
+    messages.push(newMessage);
+
+    //setMessages((prevMessages) => [...prevMessages, newMessage]);
+
+      setChatMessages('');
     }
   };
 
@@ -317,9 +359,10 @@ const VideoRoom = () => {
     }
   };
 
+ 
   return (
     <div className="min-h-screen bg-gray-950">
-      <div className="h-screen flex flex-col">
+      <div className="min-h-screen flex flex-col">
         {/* Header */}
         <motion.div
           initial={{ opacity: 0, y: -20 }}
@@ -330,7 +373,14 @@ const VideoRoom = () => {
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
-              onClick={() => navigate('/')}
+              onClick={() => {
+                if (localStreamRef) {
+                  localStreamRef.current?.getVideoTracks().forEach((track) => track.stop());
+                }
+                setConnectionStatus("disconnected");
+                socket.emit("leave-room", roomId);
+                navigate("/");
+              }}
               className="text-gray-400 hover:text-white transition-colors flex items-center gap-2"
             >
               <ArrowLeft className="w-5 h-5" />
@@ -341,38 +391,45 @@ const VideoRoom = () => {
               <span>Room: {roomId}</span>
             </div>
           </div>
+          {/* Connection Status */}
           <div className="flex items-center gap-4">
-            {/* <span className={`flex items-center gap-2 ${
-              connectionStatus === 'connected' ? 'text-green-400' : 'text-yellow-400'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${
-                connectionStatus === 'connected' ? 'bg-green-400' : 'bg-yellow-400'
-              }`}></div>
-              {connectionStatus === 'connected' ? 'Connected' : 'Connecting...'}
-            </span> */}
+            <span
+              className={`flex items-center gap-2 ${
+                connectionStatus === "connected" ? "text-green-400" : "text-yellow-400"
+              }`}
+            >
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  connectionStatus === "connected" ? "bg-green-400" : "bg-yellow-400"
+                }`}
+              ></div>
+              {connectionStatus === "connected" ? "Connected" : "Connecting..."}
+            </span>
           </div>
         </motion.div>
 
-        {/* Main Content */}
-        <div className="flex-1 p-4 relative">
-          <div className="grid grid-cols-2 grid-rows-2 gap-4 h-full">
-            {localStreamRef && (
-              <VideoPlayer
-                stream={localStreamRef.current!}
-                isMirrored={true}
-                label="You"
-              />
-            )}
-            {remoteStreams.map((remote) => (
-              <VideoPlayer
-                key={remote.id}
-                stream={remote.stream}
-                label={`Participant ${remote.id}`}
-              />
-            ))}
+        {/* Main Content (Updated) */}
+        <div className="flex-1 p-4 relative flex justify-center items-center overflow-hidden ">
+          <div 
+            className="grid gap-4 w-full h-full"
+            style={{ 
+              gridTemplateColumns: "repeat(2, 1fr)", // Always 2 columns
+              gridTemplateRows: "repeat(2, 1fr)", // Always 2 rows
+              width: "100%",
+              height: "calc(100vh - HEIGHT_OF_DIV_ABOVE)", // Takes remaining height
+              overflow: "hidden"
+            }}
+          >
+            {[
+              ...(localStreamRef ? [<VideoPlayer key="local" stream={localStreamRef.current!} isMirrored={true} label="You" />] : []),
+              ...remoteStreams.slice(0, 3).map((remote) => (
+                <VideoPlayer key={remote.id} isMirrored={true} stream={remote.stream} label={`Participant ${remote.id}`} />
+              )),
+              ...Array(Math.max(0, 4 - (1 + remoteStreams.length))).fill(
+                <div className="bg-gray-800 flex items-center justify-center text-white text-xl">Waiting...</div>
+              )
+            ]}
           </div>
-
-          {/* Chat Sidebar */}
           <AnimatePresence>
             {isChatOpen && (
               <motion.div
@@ -380,7 +437,7 @@ const VideoRoom = () => {
                 animate={{ x: 0, opacity: 1 }}
                 exit={{ x: '100%', opacity: 0 }}
                 transition={{ type: 'spring', damping: 20 }}
-                className="absolute top-0 right-0 h-full w-80 bg-gray-900 border-l border-gray-800 shadow-xl flex flex-col"
+                className="absolute top-0 right-0 h- w-80 bg-gray-900 border-l border-gray-800 shadow-xl flex flex-col z-60"
               >
                 {/* Chat Header */}
                 <div className="p-4 border-b border-gray-800 flex justify-between items-center">
@@ -429,8 +486,8 @@ const VideoRoom = () => {
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      value={message}
-                      onChange={(e) => setMessage(e.target.value)}
+                      value={chatMessages}
+                      onChange={(e) => setChatMessages(e.target.value)}
                       placeholder="Type a message..."
                       className="flex-1 bg-gray-800 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500 border border-gray-700"
                     />
@@ -449,57 +506,65 @@ const VideoRoom = () => {
           </AnimatePresence>
         </div>
 
+
         {/* Controls */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-gray-900 p-4 flex justify-center items-center gap-4 border-t border-gray-800"
-        >
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={ toggleMute}
-            className={`p-4 rounded-full transition-colors border ${
-              isMuted
-                ? 'bg-red-600 text-white hover:bg-red-700 border-red-500'
-                : 'bg-gray-800 text-white hover:bg-gray-700 border-gray-700'
-            }`}
+        <AnimatePresence>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ duration: 0.3 }}
+            className="fixed bottom-4 opacity-90 transform -translate-x-1/2 p-4 flex w-full  justify-center items-center gap-4 border-gray-800 rounded-lg shadow-lg "
           >
-            {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={toggleVideo}
-            className={`p-4 rounded-full transition-colors border ${
-              isVideoOff
-                ? 'bg-red-600 text-white hover:bg-red-700 border-red-500'
-                : 'bg-gray-800 text-white hover:bg-gray-700 border-gray-700'
-            }`}
-          >
-            {isVideoOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => navigate('/')}
-            className="p-4 rounded-full bg-red-600 text-white hover:bg-red-700 transition-colors"
-          >
-            <Phone className="w-6 h-6" />
-          </motion.button>
-          <motion.button
-            whileHover={{ scale: 1.1 }}
-            whileTap={{ scale: 0.9 }}
-            onClick={() => setIsChatOpen(true)}
-            className={`p-4 rounded-full transition-colors border ${
-              isChatOpen
-                ? 'bg-indigo-600 text-white hover:bg-indigo-700 border-indigo-500'
-                : 'bg-gray-800 text-white hover:bg-gray-700 border-gray-700'
-            }`}
-          >
-            <MessageSquare className="w-6 h-6" />
-          </motion.button>
-        </motion.div>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={toggleMute}
+              className={`p-4 rounded-full transition-colors border ${
+                isMuted
+                  ? "bg-red-600 text-white hover:bg-red-700 border-red-500"
+                  : "bg-gray-800 text-white hover:bg-gray-700 border-gray-700"
+              }`}
+            >
+              {isMuted ? <MicOff className="w-6 h-6" /> : <Mic className="w-6 h-6" />}
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={toggleVideo}
+              className={`p-4 rounded-full transition-colors border ${
+                isVideoOff
+                  ? "bg-red-600 text-white hover:bg-red-700 border-red-500"
+                  : "bg-gray-800 text-white hover:bg-gray-700 border-gray-700"
+              }`}
+            >
+              {isVideoOff ? <VideoOff className="w-6 h-6" /> : <Video className="w-6 h-6" />}
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => navigate("/")}
+              className="p-4 rounded-full bg-red-600 text-white hover:bg-red-700 transition-colors"
+            >
+              <Phone className="w-6 h-6" />
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setIsChatOpen(true)}
+              className={`p-4 rounded-full transition-colors border ${
+                isChatOpen
+                  ? "bg-indigo-600 text-white hover:bg-indigo-700 border-indigo-500"
+                  : "bg-gray-800 text-white hover:bg-gray-700 border-gray-700"
+              }`}
+            >
+              <MessageSquare className="w-6 h-6" />
+            </motion.button>
+          </motion.div>
+        </AnimatePresence>
       </div>
     </div>
   );

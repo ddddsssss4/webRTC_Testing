@@ -1,15 +1,16 @@
-import  { useState } from 'react';
-import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
-import { Video, ArrowRight, ArrowLeft } from 'lucide-react';
+import { useState } from "react";
+import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
+import { Video, ArrowRight, ArrowLeft } from "lucide-react";
 
 const JoinRoom = () => {
-  const [roomId, setRoomId] = useState('');
+  const [roomId, setRoomId] = useState("");
+  const [name, setName] = useState(""); // Correctly setting up the name state
   const navigate = useNavigate();
 
   const handleJoinRoom = () => {
-    if (roomId.trim()) {
-      navigate(`/room/${roomId}`, { state: { action: 'join' } });
+    if (roomId.trim() && name.trim()) {
+      navigate(`/room/${roomId}`, { state: { action: "join", name } });
     }
   };
 
@@ -23,7 +24,7 @@ const JoinRoom = () => {
         <motion.button
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
-          onClick={() => navigate('/')}
+          onClick={() => navigate("/")}
           className="absolute left-4 top-4 text-gray-400 hover:text-white transition-colors flex items-center gap-2"
         >
           <ArrowLeft className="w-5 h-5" />
@@ -33,12 +34,13 @@ const JoinRoom = () => {
         <div className="flex items-center justify-center mb-8">
           <Video className="w-12 h-12 text-indigo-400" />
         </div>
-        
+
         <h2 className="text-2xl font-bold text-center mb-6 text-white">
           Join a Meeting
         </h2>
 
         <div className="space-y-6">
+          {/* Room ID Input */}
           <div>
             <label className="block text-sm font-medium text-gray-300 mb-2">
               Room ID
@@ -50,11 +52,26 @@ const JoinRoom = () => {
               placeholder="Enter the room ID to join"
               className="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
             />
+          </div>
+
+          {/* Name Input */}
+          <div>
+            <label className="block text-sm font-medium text-gray-300 mb-2">
+              Your Name
+            </label>
+            <input
+              type="text"
+              value={name} // Bind name state
+              onChange={(e) => setName(e.target.value)} // Correct handler
+              placeholder="Enter your name"
+              className="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            />
             <p className="mt-2 text-sm text-gray-400">
-              Enter the room ID provided by the meeting organizer
+              Enter the name you want to use in the meeting
             </p>
           </div>
 
+          {/* Join Button */}
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}

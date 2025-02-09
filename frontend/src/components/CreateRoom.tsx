@@ -5,11 +5,12 @@ import { Video, ArrowRight, ArrowLeft } from 'lucide-react';
 
 const CreateRoom = () => {
   const [roomId, setRoomId] = useState('');
+  const [name , setName]    = useState('');
   const navigate = useNavigate();
 
   const handleCreateRoom = () => {
     if (roomId.trim()) {
-      navigate(`/room/${roomId}`, { state: { action: 'create' } });;
+      navigate(`/room/${roomId}`, { state: { action: 'create' , name }  });;
     }
   };
 
@@ -48,6 +49,16 @@ const CreateRoom = () => {
               value={roomId}
               onChange={(e) => setRoomId(e.target.value)}
               placeholder="Enter a unique room ID"
+              className="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+            />
+            <label className="block text-sm font-medium text-gray-300 mb-2 mt-2">
+             Choose Name
+            </label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e)=> setName(e.target.value)}
+              placeholder="Enter a name for your visibility"
               className="w-full px-4 py-3 rounded-lg bg-gray-700 border border-gray-600 text-white placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
             />
             <p className="mt-2 text-sm text-gray-400">
