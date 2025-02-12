@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "start": "tsc && node dist/index.js"
+    "dev": "nodemon --ext ts --exec ts-node src/index.ts",
+    "start": "tsc  && node dist/index.js"
   },
   "keywords": [],
   "author": "",
@@ -14,7 +15,11 @@
     "@types/express": "^5.0.0",
     "cors": "^2.8.5",
     "express": "^4.21.2",
+    "ioredis": "^5.5.0",
+    "kafkajs": "^2.2.4",
+    "nodemon": "^3.1.9",
     "socket.io": "^4.8.1",
+    "ts-node": "^10.9.2",
     "typescript": "^5.7.3"
   }
 }
