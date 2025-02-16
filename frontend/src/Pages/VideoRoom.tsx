@@ -3,11 +3,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Mic, MicOff, Video, VideoOff, Phone, Users, MessageSquare, ArrowLeft, Send, X } from 'lucide-react';
 
-import { VideoPlayer } from './VideoPlayer';
+import { VideoPlayer } from '../Components/VideoPlayer';
 import { useLocation } from 'react-router-dom';
 import io from "socket.io-client";
 
-const socket = io("https://webrtc-1-hc8e.onrender.com");
+const socket = io("http://localhost:5000");
 
 interface PeerConnections {
   [peerId: string]: RTCPeerConnection;
@@ -34,7 +34,14 @@ const VideoRoom = () => {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const [remoteStreams, setRemoteStreams] = useState<RemoteStream[]>([]);
-  console.log(isVisible,name , message);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [messages , setMessages] = useState([
+    { id: 1, sender: 'John Doe', text: 'Hey everyone! 👋', time: '10:30 AM' },
+    { id: 2, sender: 'You', text: 'Hi John! How are you?', time: '10:31 AM' },
+    { id: 3, sender: 'Sarah Smith', text: 'The presentation looks great!', time: '10:32 AM' },
+    { id: 4, sender: 'You', text: 'Thanks Sarah! Glad you like it', time: '10:33 AM' },
+  ]);
+  
     // Store peer connections keyed by peerId
     const pcsRef = useRef<PeerConnections>({});
   
@@ -42,7 +49,7 @@ const VideoRoom = () => {
     const rtcConfig = {
       iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
     };
-
+    
 
     useEffect(() => {
       const handleMouseMove = (e: MouseEvent) => {
@@ -162,12 +169,30 @@ const VideoRoom = () => {
           createOffer(peerId);
         });
       });
+
+            //     const newMessage = {
+  //       id: messages.length + 1,
+  //       sender: data.sender,
+  //       text: data.message,
+  //       time: new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+  //     };
+  socket.on("chat-history", (chatHistory) => {
+    console.log("Received chat history:", chatHistory);
+
+    setMessages((prevMessages) => {
+        const startingId = prevMessages.length + 1; // Get the next starting ID
+
+        const formattedMessages = chatHistory.map((data, index) => ({
+            id: startingId + index, // Ensure ID is sequential
+            sender: data.sender,
+            text: data.message,
+            time: new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }));
+
+        return [...prevMessages, ...formattedMessages]; // Append to existing messages
+    });
+});
   
-      // **Remove the "user-connected" event handler to avoid duplicate offers**
-      // socket.on("user-connected", (peerId: string) => {
-      //   console.log(`User connected: ${peerId}`);
-      //   // Do not call createOffer here. Let the new joiner handle offer creation.
-      // });
   
       // When an offer is received:
       socket.on("offer", async (data: { userId: string; offer: RTCSessionDescriptionInit }) => {
@@ -262,6 +287,7 @@ const VideoRoom = () => {
         }
         setRemoteStreams((prevStreams) => prevStreams.filter((rs) => rs.id !== peerId));
       });
+      
   
       // Clean up on unmount.
       return () => {
@@ -297,20 +323,6 @@ const VideoRoom = () => {
         console.error("Error creating offer:", error);
       }
     };
-  // Dummy messages for demonstration
-  const [messages] = useState([
-    { id: 1, sender: 'John Doe', text: 'Hey everyone! 👋', time: '10:30 AM' },
-    { id: 2, sender: 'You', text: 'Hi John! How are you?', time: '10:31 AM' },
-    { id: 3, sender: 'Sarah Smith', text: 'The presentation looks great!', time: '10:32 AM' },
-    { id: 4, sender: 'You', text: 'Thanks Sarah! Glad you like it', time: '10:33 AM' },
-  ]);
-
-  // useEffect(() => {
-  //   if (roomId) {
-  //     joinRoom(roomId);
-  //   }
-  //   return () => cleanup();
-  // }, [roomId]);
 
   useEffect(() => {
     if (roomId) {
@@ -322,24 +334,55 @@ const VideoRoom = () => {
     }
    
   }, [roomId]);
+   
+
+  useEffect(() => {
+    const handleReceiveMessage = (data: { sender: string; message: string; timestamp: string }) => {
+      const newMessage = {
+        id: messages.length + 1,
+        sender: data.sender,
+        text: data.message,
+        time: new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      };
+      setMessages((prevMessages) => [...prevMessages, newMessage]);
+    };
+  
+    socket.on('receiveMessage', handleReceiveMessage);
+  
+    // Cleanup function
+    return () => {
+      socket.off('receiveMessage', handleReceiveMessage);
+    };
+  }, [messages.length]); // Add dependencies if needed
+
+  
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
     if (chatMessages.trim()) {
     const newMessage = {
       id: messages.length + 1,
-      sender: 'You',
+      sender: name,
       text: chatMessages.trim(),
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
 
-    messages.push(newMessage);
+    // Append new messages
 
+
+    socket.emit("sendMessage", { roomId, sender: name, message: chatMessages.trim() });
+     console.log(newMessage)
     //setMessages((prevMessages) => [...prevMessages, newMessage]);
 
       setChatMessages('');
     }
   };
+
+  useEffect(() => {
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [messages]);
 
   const toggleMute = () => {
     if (localStreamRef) {
@@ -356,6 +399,23 @@ const VideoRoom = () => {
         track.enabled = !track.enabled;
       });
       setIsVideoOff(!isVideoOff);
+    }
+  };
+
+
+  const totalParticipants = 1 + remoteStreams.length; // local + remote streams
+  const getGridLayout = () => {
+    switch (totalParticipants) {
+      case 1:
+        return 'grid-cols-1';
+      case 2:
+        return 'grid-cols-2';
+      case 3:
+        return 'grid-cols-2';
+      case 4:
+        return 'grid-cols-2';
+      default:
+        return 'grid-cols-3';
     }
   };
 
@@ -455,32 +515,34 @@ const VideoRoom = () => {
                   </motion.button>
                 </div>
 
-                {/* Messages */}
-                <div className="flex-1 overflow-y-auto p-4 space-y-4">
-                  {messages.map((msg) => (
-                    <div
-                      key={msg.id}
-                      className={`flex flex-col ${
-                        msg.sender === 'You' ? 'items-end' : 'items-start'
-                      }`}
-                    >
-                      <div
-                        className={`max-w-[80%] ${
-                          msg.sender === 'You'
-                            ? 'bg-indigo-600 text-white'
-                            : 'bg-gray-800 text-gray-100'
-                        } rounded-lg px-4 py-2`}
-                      >
-                        {msg.sender !== 'You' && (
-                          <div className="text-xs text-gray-400 mb-1">{msg.sender}</div>
-                        )}
-                        <p>{msg.text}</p>
-                      </div>
-                      <span className="text-xs text-gray-500 mt-1">{msg.time}</span>
-                    </div>
-                  ))}
-                </div>
+               
+                <div className="flex-1 h-[40px] overflow-hidden p-4 space-y-4">
+                  {messages.map((msg) => {
+                    const isCurrentUser = msg.sender === name;
+                    const senderName = isCurrentUser ? "You" : msg.sender;
 
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col ${isCurrentUser ? 'items-end' : 'items-start'}`}
+                      >
+                        <div
+                          className={`max-w-[80%] ${
+                            isCurrentUser ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-100'
+                          } rounded-lg px-4 py-2`}
+                        >
+                          {!isCurrentUser && (
+                            <div className="text-xs text-gray-400 mb-1">{senderName}</div>
+                          )}
+                          <p>{msg.text}</p>
+                        </div>
+                        <span className="text-xs text-gray-500 mt-1">{msg.time}</span>
+                      </div>
+                    );
+                  })}
+                  {/* Invisible div to scroll to the latest message */}
+                  <div ref={messagesEndRef} />
+                  </div>
                 {/* Message Input */}
                 <form onSubmit={handleSendMessage} className="p-4 border-t border-gray-800">
                   <div className="flex gap-2">

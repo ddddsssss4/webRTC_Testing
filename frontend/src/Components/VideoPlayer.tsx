@@ -20,7 +20,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ stream, isMirrored = f
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="bg-gray-900 rounded-lg relative border border-gray-800 h-full"
+      className="bg-gray-100 rounded-lg relative border border-gray-800 "
     >
       <video
         ref={videoRef}
@@ -28,7 +28,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({ stream, isMirrored = f
        
         playsInline
         muted={true}
-        className={`w-full h-full object-cover rounded-lg ${
+        className={`w-full h-full object-cover rounded- ${
           isMirrored ? 'transform scale-x-[-1]' : ''
         }`}
       />
