@@ -7,7 +7,7 @@ import { VideoPlayer } from '../Components/VideoPlayer';
 import { useLocation } from 'react-router-dom';
 import io from "socket.io-client";
 
-const socket = io("http://localhost:5000");
+const socket = io("https://webrtc-1-hc8e.onrender.com");
 
 interface PeerConnections {
   [peerId: string]: RTCPeerConnection;
